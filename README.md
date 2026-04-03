@@ -4,6 +4,18 @@ A Python-based application for real-time aircraft tracking using Software-Define
 
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Status](https://img.shields.io/badge/status-active-success)
+
+![Hardware](https://img.shields.io/badge/hardware-RTL--SDR-orange)
+![Frequency](https://img.shields.io/badge/frequency-1090%20MHz-blueviolet)
+![Protocol](https://img.shields.io/badge/protocol-ADS--B%20%7C%20Mode--S-informational)
+![Sample Rate](https://img.shields.io/badge/sample%20rate-2%20MS%2Fs-yellow)
+
+![GUI](https://img.shields.io/badge/GUI-Tkinter-blue)
+![NumPy](https://img.shields.io/badge/numpy-required-red)
+![Dependencies](https://img.shields.io/badge/dependencies-pyrtlsdr%20%7C%20numpy%20%7C%20tkintermapview%20%7C%20pillow-lightblue)
+![API](https://img.shields.io/badge/API-hexdb.io%20%7C%20planespotters.net-teal)
 
 ## Features
 
