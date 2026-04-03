@@ -5,7 +5,7 @@ A Python-based application for real-time aircraft tracking using Software-Define
 ![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Status](https://img.shields.io/badge/status-active-success)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=infosecm_adsb-mon&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=infosecm_adsb-mon)
 
 ![Hardware](https://img.shields.io/badge/hardware-RTL--SDR-orange)
 ![Frequency](https://img.shields.io/badge/frequency-1090%20MHz-blueviolet)
