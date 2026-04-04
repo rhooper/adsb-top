@@ -1,5 +1,7 @@
 ![adsb-mon Project Logo](adsb-mon_logo.png)
 
+<img src="adsb-mon_logo.png" alt="Alt Text" style="width:50%; height:auto;">
+
 # adsb-mon — RTL-SDR Real-Time Aircraft Tracker
 
 A Python-based application for real-time aircraft tracking using Software-Defined Radio (SDR). This tool receives, decodes, and visualizes ADS-B (Automatic Dependent Surveillance-Broadcast) signals transmitted by aircraft, displaying live flight information on an interactive map with enriched data from online sources.
