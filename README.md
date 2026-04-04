@@ -1,5 +1,3 @@
-![adsb-mon Project Logo](adsb-mon_logo.png)
-
 <img src="adsb-mon_logo.png" alt="Alt Text" style="width:50%; height:auto;">
 
 # adsb-mon — RTL-SDR Real-Time Aircraft Tracker
