@@ -168,8 +168,16 @@ class ADSBDecoder:
         messages, n, idx = [], len(mag), 0
         while idx < n - 240:
             p = mag[idx:idx+16]
-            if (p[0]>p[1] and p[0]>p[2] and p[2]>p[1] and p[2]>p[3] and
-                    p[7]>p[6] and p[7]>p[8] and p[9]>p[8] and p[9]>p[10]):
+            # dump1090's preamble test: pulses at 0, 2, 7, 9 are peaks, and the
+            # gaps around them are quiet relative to the pulse level.
+            if (p[0]>p[1] and p[1]<p[2] and p[2]>p[3] and p[3]<p[0] and
+                    p[4]<p[0] and p[5]<p[0] and p[6]<p[0] and
+                    p[7]>p[8] and p[8]<p[9] and p[9]>p[6]):
+                high = (p[0]+p[2]+p[7]+p[9]) / 6
+                if (p[4] >= high or p[5] >= high or p[11] >= high or
+                        p[12] >= high or p[13] >= high or p[14] >= high):
+                    idx += 1
+                    continue
                 msg = self._decode_frame(mag, idx+16)
                 if msg:
                     messages.append(msg)
