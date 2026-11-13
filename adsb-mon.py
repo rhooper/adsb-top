@@ -246,8 +246,8 @@ class ADSBDecoder:
 
     def _decode_altitude(self, me):
         ac = (me[1] & 0xFF) << 4 | (me[2] & 0xF0) >> 4
-        if not (ac >> 6) & 1 and (ac >> 4) & 1:
-            n = ((ac & 0x1F80) >> 2) | ((ac & 0x20) >> 1) | (ac & 0xF)
+        if ac & 0x10:  # Q bit: 25 ft increments
+            n = ((ac & 0xFE0) >> 1) | (ac & 0xF)
             return n*25 - 1000
         return None
 
