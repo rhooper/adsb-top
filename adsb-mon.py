@@ -11,7 +11,9 @@ Hardware:
   Windows: set PATH=%CD%;%PATH%
   Falls back to a 5-aircraft demo mode if no dongle is detected.
 
-Python: 3.10+   Platform: Windows 11
+  macOS: brew install rtl-sdr (Homebrew lib dir is added automatically).
+
+Python: 3.10+   Platform: Windows 11, macOS
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 External APIs (all free, no key required):
@@ -37,6 +39,9 @@ Features:
   • Log pane shows status messages and selected-aircraft state
 """
 
+import os
+import sys
+import types
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 import threading
@@ -51,11 +56,27 @@ from collections import deque
 from datetime import datetime
 
 # ── Optional heavy deps ──────────────────────────────────────────────────────
+# pyrtlsdr imports pkg_resources only to read its own version (inside a bare
+# try/except); setuptools no longer ships it, so a stub keeps the import alive.
+try:
+    import pkg_resources  # noqa: F401
+except ImportError:
+    sys.modules["pkg_resources"] = types.ModuleType("pkg_resources")
+
+# ctypes.util.find_library doesn't search Homebrew's lib dir on macOS, and
+# pyrtlsdr then fails with AttributeError instead of ImportError.
+if sys.platform == "darwin":
+    os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = ":".join(
+        p for p in ("/opt/homebrew/lib", "/usr/local/lib",
+                    os.environ.get("DYLD_FALLBACK_LIBRARY_PATH")) if p)
+
+HW_ERROR = ""
 try:
     from rtlsdr import RtlSdr
     HW_AVAILABLE = True
-except ImportError:
+except Exception as e:
     HW_AVAILABLE = False
+    HW_ERROR = f"{type(e).__name__}: {e}"
 
 try:
     import numpy as np
@@ -407,6 +428,8 @@ class ReceiverThread(threading.Thread):
 
     def _run_demo(self):
         self.q.put(("status", "⚠  Demo mode — dongle/numpy not detected"))
+        if HW_ERROR:
+            self.q.put(("status", f"⚠  pyrtlsdr unavailable: {HW_ERROR}"))
         while self.running:
             for icao in self.demo.tick():
                 self.q.put(("update", icao))
