@@ -25,7 +25,8 @@ A Python-based application for real-time aircraft tracking using Software-Define
 - **Real-Time ADS-B Decoding**: Tunes RTL-SDR dongle to 1090 MHz and decodes Mode-S/ADS-B messages in real-time
 - **Live Aircraft Table**: Displays comprehensive flight data including:
   - ICAO 24-bit address (unique aircraft identifier)
-  - Callsign/flight number
+  - Callsign (ICAO flight ID, e.g. ACA871)
+  - Flight number (IATA, e.g. AC871)
   - Altitude (feet)
   - GPS coordinates (latitude/longitude)
   - Ground speed (knots)
@@ -50,6 +51,7 @@ A Python-based application for real-time aircraft tracking using Software-Define
 
 - **Online Data Enrichment**:
   - Background API calls to hexdb.io for aircraft metadata
+  - Flight number and route from adsbdb.com once the callsign is decoded
   - Automatic photo retrieval from planespotters.net
   - No API keys required — all services are free
 
@@ -446,12 +448,19 @@ When an aircraft is selected (via table or map), the detail panel shows:
 **Background Thread Architecture:**
 - Non-blocking API calls
 - Queue-based processing
-- One enrichment per aircraft
+- One aircraft lookup per ICAO, one flight lookup per callsign
 
 **hexdb.io API:**
 - Free, no authentication required
 - Returns: registration, type, manufacturer, operator, route
 - Endpoint: `https://hexdb.io/api/v1/aircraft/<ICAO>`
+
+**adsbdb.com API:**
+- Free, no authentication required
+- Returns: IATA flight number, airline, origin/destination
+- Endpoint: `https://api.adsbdb.com/v0/callsign/<callsign>`
+- Until it answers, the flight number comes from a built-in ICAO→IATA
+  airline prefix table (`ICAO_TO_IATA` in `adsb-mon.py`)
 
 **planespotters.net Photo API:**
 - Free, no authentication required
@@ -727,6 +736,7 @@ This project is provided as-is for educational and hobbyist purposes. ADS-B rece
 
 **External APIs:**
 - [hexdb.io](https://hexdb.io/) — Aircraft database
+- [adsbdb.com](https://www.adsbdb.com/) — Flight numbers and routes
 - [planespotters.net](https://www.planespotters.net/) — Aircraft photos
 - [OpenStreetMap](https://www.openstreetmap.org/) — Map tiles
 
