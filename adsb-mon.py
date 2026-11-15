@@ -105,6 +105,28 @@ GAIN             = 49.6
 SAMPLES_PER_POLL = 256 * 1024
 CS_CHARSET       = "#ABCDEFGHIJKLMNOPQRSTUVWXYZ#####_###############0123456789######"
 
+# ICAO → IATA airline designators, for an instant flight number before the
+# adsbdb.com lookup answers (or when it can't be reached).
+ICAO_TO_IATA = {
+    "ACA": "AC", "AAL": "AA", "AFR": "AF", "AMX": "AM", "ANA": "NH",
+    "ASA": "AS", "AUA": "OS", "AZA": "AZ", "BAW": "BA", "CCA": "CA",
+    "CES": "MU", "CPA": "CX", "CSN": "CZ", "DAL": "DL", "DLH": "LH",
+    "EIN": "EI", "ETD": "EY", "EZY": "U2", "FDX": "FX", "FIN": "AY",
+    "IBE": "IB", "JAL": "JL", "JBU": "B6", "JZA": "QK", "KAL": "KE",
+    "KLM": "KL", "NKS": "NK", "QFA": "QF", "QTR": "QR", "RPA": "YX",
+    "RYR": "FR", "SAS": "SK", "SIA": "SQ", "SKW": "OO", "SWA": "WN",
+    "SWR": "LX", "TAP": "TP", "THY": "TK", "UAE": "EK", "UAL": "UA",
+    "UPS": "5X", "VIR": "VS", "VOI": "Y4", "WJA": "WS",
+}
+
+
+def flight_number(callsign: str) -> str:
+    """ACA871 → AC871; '' for callsigns that aren't airline flights (C-GABC, N123AB)."""
+    cs = (callsign or "").strip()
+    iata = ICAO_TO_IATA.get(cs[:3])
+    num = cs[3:].lstrip("0")
+    return f"{iata}{num}" if iata and num and num[0].isdigit() else ""
+
 BG      = "#0a0e1a"
 PANEL   = "#111827"
 PANEL2  = "#0f172a"
@@ -122,6 +144,7 @@ FONT_HEAD = ("Consolas", 10, "bold")
 COLS = [
     ("ICAO",     7,  "center"),
     ("Callsign", 10, "center"),
+    ("Flight",    8, "center"),
     ("Alt (ft)", 10, "e"),
     ("Lat",      11, "e"),
     ("Lon",      11, "e"),
@@ -316,9 +339,12 @@ class ADSBDecoder:
             "heading": None, "vrate": None, "squawk": "",
             "msgs": 0, "last_seen": None,
             "reg": "", "type": "", "manufacturer": "", "operator": "",
-            "photo_url": "", "route": "",
-            "_enriched": False, "_enriching": False,
+            "photo_url": "", "route": "", "flight": "",
+            "_enriched": False, "_enriching": False, "_flight_cs": "",
         })
+        cs = info.get("callsign")
+        if cs and cs != ac["callsign"]:
+            ac["flight"] = flight_number(cs)
         for k, v in info.items():
             if not k.startswith("_") and v is not None:
                 ac[k] = v
@@ -355,13 +381,7 @@ def enrich_aircraft(ac: dict, update_q: queue.Queue):
         ac["type"]         = data.get("Type", "")
         ac["manufacturer"] = data.get("Manufacturer", "")
         ac["operator"]     = data.get("RegisteredOwners", "")
-    # 2. Route via callsign
-    cs = (ac.get("callsign") or "").strip()
-    if cs:
-        rd = _http_json(f"https://hexdb.io/api/v1/route/icao/{cs}")
-        if rd and "route" in rd:
-            ac["route"] = rd["route"]
-    # 3. Photo from Planespotters.net (free, no key, returns real photos)
+    # 2. Photo from Planespotters.net (free, no key, returns real photos)
     #    Try by hex first, fall back to registration
     photo_url = None
     ps = _http_json(f"https://api.planespotters.net/pub/photos/hex/{icao.lower()}")
@@ -379,6 +399,32 @@ def enrich_aircraft(ac: dict, update_q: queue.Queue):
     ac["_enriched"]  = True
     ac["_enriching"] = False
     update_q.put(("enrich", icao))
+
+def enrich_flight(ac: dict, cs: str, update_q: queue.Queue):
+    rd = _http_json(f"https://hexdb.io/api/v1/route/icao/{cs}")
+    route = rd.get("route", "") if rd else ""
+    flight = flight_number(cs)
+    fd = _http_json(f"https://api.adsbdb.com/v0/callsign/{cs}")
+    fr = fd.get("response") if fd else None
+    if isinstance(fr, dict) and "flightroute" in fr:
+        fr = fr["flightroute"]
+        flight = fr.get("callsign_iata") or flight
+        if not route and fr.get("origin") and fr.get("destination"):
+            route = f"{fr['origin']['icao_code']}-{fr['destination']['icao_code']}"
+    if ac.get("callsign") == cs:  # callsign may have changed mid-lookup
+        ac["flight"], ac["route"] = flight, route
+    update_q.put(("enrich", ac["icao"]))
+
+def start_enrichment(ac: dict, update_q: queue.Queue):
+    """Call on every update. Aircraft lookups run once; flight lookups run once
+    the callsign arrives, which is usually several messages after the first."""
+    if not ac["_enriched"] and not ac["_enriching"]:
+        ac["_enriching"] = True
+        threading.Thread(target=enrich_aircraft, args=(ac, update_q), daemon=True).start()
+    cs = ac.get("callsign") or ""
+    if cs and cs != ac["_flight_cs"]:
+        ac["_flight_cs"] = cs
+        threading.Thread(target=enrich_flight, args=(ac, cs, update_q), daemon=True).start()
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Demo source
@@ -406,8 +452,8 @@ class DemoSource:
                 "lat": lat, "lon": lon, "speed": spd, "heading": hdg,
                 "vrate": vr, "squawk": sq, "msgs": 0, "last_seen": None,
                 "reg": "", "type": "", "manufacturer": "", "operator": "",
-                "photo_url": "", "route": "",
-                "_enriched": False, "_enriching": False,
+                "photo_url": "", "route": "", "flight": flight_number(cs),
+                "_enriched": False, "_enriching": False, "_flight_cs": "",
             })
             ac["lat"] = lat + math.cos(rad)*spd/3600/60*self._t*0.1
             ac["lon"] = lon + math.sin(rad)*spd/3600/60/math.cos(math.radians(lat))*self._t*0.1
@@ -624,6 +670,7 @@ class App(tk.Tk):
         fields = [
             ("ICAO",         "icao"),
             ("Callsign",     "callsign"),
+            ("Flight",       "flight"),
             ("Registration", "reg"),
             ("Type",         "type"),
             ("Manufacturer", "manufacturer"),
@@ -714,10 +761,8 @@ class App(tk.Tk):
                     self.lbl_msgs.config(text=f"Messages: {self._msg_count}")
                     self.lbl_ac.config(text=f"Aircraft: {len(self.decoder.aircraft)}")
                     ac = self.decoder.aircraft.get(data)
-                    if ac and not ac["_enriched"] and not ac["_enriching"]:
-                        ac["_enriching"] = True
-                        threading.Thread(target=enrich_aircraft,
-                                         args=(ac, self.update_q), daemon=True).start()
+                    if ac:
+                        start_enrichment(ac, self.update_q)
                     if data == self._selected_icao:
                         self._update_detail(data)
                 elif kind == "enrich":
@@ -756,7 +801,7 @@ class App(tk.Tk):
             return "—" if v is None else (f"{v:{fs}}" if fs else str(v))
         ts = ac["last_seen"].strftime("%H:%M:%S") if ac["last_seen"] else "—"
         return (
-            ac["icao"], ac["callsign"] or "—",
+            ac["icao"], ac["callsign"] or "—", ac.get("flight") or "—",
             f(ac["altitude"], ",d"),
             f"{ac['lat']:.4f}" if ac["lat"] is not None else "—",
             f"{ac['lon']:.4f}" if ac["lon"] is not None else "—",
@@ -794,6 +839,7 @@ class App(tk.Tk):
         v = self._dvars
         v["icao"].set(ac["icao"])
         v["callsign"].set(ac["callsign"] or "—")
+        v["flight"].set(ac.get("flight") or "—")
         v["reg"].set(ac.get("reg") or "—")
         v["type"].set(ac.get("type") or "—")
         v["manufacturer"].set(ac.get("manufacturer") or "—")
@@ -1066,7 +1112,7 @@ class App(tk.Tk):
                 def _fv(v, suffix=""):
                     return f"{v}{suffix}" if v not in (None, "", 0) else "—"
                 lines = [
-                    f"  ✈  {_fv(ac.get('callsign'))}   {_fv(ac.get('type'))}  ",
+                    f"  ✈  {_fv(ac.get('callsign'))}  {_fv(ac.get('flight'))}   {_fv(ac.get('type'))}  ",
                     f"  Alt: {_fv(ac.get('altitude'),' ft')}  Spd: {_fv(ac.get('speed'),' kt')}  Hdg: {_fv(ac.get('heading'),'°')}  ",
                     f"  {_fv(ac.get('operator'))}  |  Reg: {_fv(ac.get('reg'))}  ",
                     f"  Route: {_fv(ac.get('route'))}  |  Squawk: {_fv(ac.get('squawk'))}  ",

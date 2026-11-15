@@ -10,7 +10,6 @@ click a column header to sort by it (again to reverse).
 
 import importlib.util
 import queue
-import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -34,7 +33,8 @@ EMERGENCY  = {"7500", "7600", "7700"}
 CYAN, WHITE, GREEN, ORANGE, RED = "#00d4ff", "#e2e8f0", "#4ade80", "#ff9f43", "#ff4d4d"
 
 COLUMNS = [  # (label, key)
-    ("ICAO", "icao"), ("Callsign", "callsign"), ("Alt ft", "altitude"),
+    ("ICAO", "icao"), ("Callsign", "callsign"), ("Flight", "flight"),
+    ("Alt ft", "altitude"),
     ("V/R", "vrate"), ("Spd kt", "speed"), ("Hdg", "heading"),
     ("Lat", "lat"), ("Lon", "lon"), ("Squawk", "squawk"), ("Msgs", "msgs"),
     ("Age", "age"), ("Type", "type"), ("Route", "route"),
@@ -65,6 +65,7 @@ def row_cells(ac, age):
     return [
         cell("icao", ac["icao"], CYAN, bold=True),
         cell("callsign", ac["callsign"], CYAN),
+        cell("flight", ac.get("flight"), CYAN),
         cell("altitude", f"{ac['altitude']:,}" if ac["altitude"] is not None else None, WHITE),
         cell("vrate", f"{vr:+,}" if vr is not None else None,
              GREEN if (vr or 0) > 0 else ORANGE if (vr or 0) < 0 else WHITE),
@@ -137,10 +138,8 @@ class AdsbTop(App):
                 elif kind == "update":
                     self._msgs += 1
                     ac = self.decoder.aircraft.get(data)
-                    if ac and not ac["_enriched"] and not ac["_enriching"]:
-                        ac["_enriching"] = True
-                        threading.Thread(target=adsb_mon.enrich_aircraft,
-                                         args=(ac, self.update_q), daemon=True).start()
+                    if ac:
+                        adsb_mon.start_enrichment(ac, self.update_q)
                 elif kind == "enrich":
                     ac = self.decoder.aircraft.get(data, {})
                     self.log_line(f"Enriched {data}: {ac.get('type') or '?'} / "
