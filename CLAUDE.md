@@ -1,6 +1,10 @@
 # adsb-mon
 
-Single-file Tk app: `adsb-mon.py`. See README.md for setup.
+Tk app `adsb-mon.py`, plus Textual terminal view `adsb-top.py`. See README.md for setup.
+
+- `adsb-top.py` loads `adsb-mon.py` via importlib and uses `ADSBDecoder`,
+  `ReceiverThread`, `enrich_aircraft`, the aircraft dict keys and the `("status" |
+  "update" | "enrich", data)` queue protocol — changing any of those breaks both.
 
 - The dongle on the dev Mac (RTL2838/R820T) currently hears no aircraft (`rtl_adsb`
   shows only noise), so a live run proves the SDR pipeline, not the decoder. Check
