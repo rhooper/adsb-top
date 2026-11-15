@@ -518,6 +518,24 @@ If no RTL-SDR hardware is detected, the application automatically enters demo mo
 
 ---
 
+## Terminal View (adsb-top)
+
+`adsb-top.py` is a `top`-like terminal alternative to the Tk GUI, using the same
+decoder, receiver and hexdb.io enrichment (keep it next to `adsb-mon.py`).
+
+```bash
+pip install textual
+python adsb-top.py
+```
+
+- Rows are coloured while fresh and fade to dim grey between 5 s and 60 s since the
+  aircraft was last heard; they are dropped after 5 minutes.
+- Emergency squawks (7500/7600/7700) stay red regardless of age.
+- Keys: `q` quit, `c` clear. Click a column header to sort by it (again to reverse);
+  default order is most recently heard first.
+
+---
+
 ## Usage Tips
 
 ### Antenna Placement
