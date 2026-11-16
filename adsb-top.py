@@ -89,6 +89,25 @@ def sort_value(ac, key):
     return (v is None or v == "", v if v is not None else 0)
 
 
+class AircraftTable(DataTable):
+    """A hidden cursor means not following; arrows or a click bring it back."""
+
+    def action_cursor_up(self):
+        if self.show_cursor:
+            super().action_cursor_up()
+        self.show_cursor = True
+
+    def action_cursor_down(self):
+        if self.show_cursor:
+            super().action_cursor_down()
+        self.show_cursor = True
+
+    async def _on_click(self, event):
+        if event.style.meta.get("row", -1) >= 0:
+            self.show_cursor = True
+        await super()._on_click(event)
+
+
 class AdsbTop(App):
     TITLE = "adsb-top"
     CSS = """
@@ -96,7 +115,8 @@ class AdsbTop(App):
     DataTable { height: 1fr; }
     RichLog { height: 6; border-top: solid $primary-darken-2; }
     """
-    BINDINGS = [("q", "quit", "Quit"), ("c", "clear", "Clear")]
+    BINDINGS = [("q", "quit", "Quit"), ("c", "clear", "Clear"),
+                ("escape", "unfollow", "Unfollow")]
 
     def __init__(self):
         super().__init__()
@@ -111,7 +131,7 @@ class AdsbTop(App):
 
     def compose(self) -> ComposeResult:
         yield Static(id="status")
-        yield DataTable(cursor_type="row", zebra_stripes=False)
+        yield AircraftTable(cursor_type="row", zebra_stripes=False)
         yield RichLog(markup=False, wrap=False)
         yield Footer()
 
@@ -163,7 +183,7 @@ class AdsbTop(App):
 
         table = self.query_one(DataTable)
         selected = None
-        if table.row_count:
+        if table.row_count and table.show_cursor:
             selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
 
         rows = sorted(self.decoder.aircraft.values(),
@@ -187,6 +207,9 @@ class AdsbTop(App):
         else:
             self.sort_key, self.sort_reverse = key, False
         self.redraw()
+
+    def action_unfollow(self):
+        self.query_one(DataTable).show_cursor = False
 
     def action_clear(self):
         self.decoder.aircraft.clear()
