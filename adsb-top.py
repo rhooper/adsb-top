@@ -3,8 +3,8 @@ adsb-top — top-like terminal view of adsb-mon's decoder.
 
 Requirements: pip install textual  (plus adsb-mon's pyrtlsdr + numpy for hardware)
 
-Rows are coloured while fresh, fade to dim grey between 5 s and 60 s since the
-aircraft was last heard, and are dropped after 300 s.  Keys: q quit, c clear;
+Rows are coloured while fresh, fade to dim grey between 10 s and 5 min since the
+aircraft was last heard, and are dropped after an hour.  Keys: q quit, c clear;
 click a column header to sort by it (again to reverse).  Every decoded message
 is appended as a JSON line to adsb-top.jsonl beside this script.
 """
@@ -26,9 +26,9 @@ _spec = importlib.util.spec_from_file_location(
 adsb_mon = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(adsb_mon)
 
-FADE_START = 5
-FADE_END   = 60
-DROP_AFTER = 300
+FADE_START = 10
+FADE_END   = 300
+DROP_AFTER = 3600
 DIM        = (0x4A, 0x4A, 0x4A)
 EMERGENCY  = {"7500", "7600", "7700"}
 LOG_PATH   = Path(__file__).with_name("adsb-top.jsonl")
