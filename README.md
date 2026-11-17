@@ -542,6 +542,8 @@ python adsb-top.py
 - Emergency squawks (7500/7600/7700) stay red regardless of age.
 - Keys: `q` quit, `c` clear. Click a column header to sort by it (again to reverse);
   default order is most recently heard first.
+- Every decoded message appends the aircraft's state as a JSON line to
+  `adsb-top.jsonl` beside the script.
 
 ---
 
