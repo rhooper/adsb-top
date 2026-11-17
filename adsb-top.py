@@ -5,10 +5,12 @@ Requirements: pip install textual  (plus adsb-mon's pyrtlsdr + numpy for hardwar
 
 Rows are coloured while fresh, fade to dim grey between 5 s and 60 s since the
 aircraft was last heard, and are dropped after 300 s.  Keys: q quit, c clear;
-click a column header to sort by it (again to reverse).
+click a column header to sort by it (again to reverse).  Every decoded message
+is appended as a JSON line to adsb-top.jsonl beside this script.
 """
 
 import importlib.util
+import json
 import queue
 import time
 from datetime import datetime
@@ -29,6 +31,7 @@ FADE_END   = 60
 DROP_AFTER = 300
 DIM        = (0x4A, 0x4A, 0x4A)
 EMERGENCY  = {"7500", "7600", "7700"}
+LOG_PATH   = Path(__file__).with_name("adsb-top.jsonl")
 
 CYAN, WHITE, GREEN, ORANGE, RED = "#00d4ff", "#e2e8f0", "#4ade80", "#ff9f43", "#ff4d4d"
 
@@ -123,6 +126,7 @@ class AdsbTop(App):
         self.decoder = adsb_mon.ADSBDecoder()
         self.update_q = queue.Queue()
         self.receiver = None
+        self.log_file = None
         self.status = "Starting…"
         self.sort_key, self.sort_reverse = "age", False
         self._msgs = 0
@@ -139,6 +143,7 @@ class AdsbTop(App):
         table = self.query_one(DataTable)
         for label, key in COLUMNS:
             table.add_column(label, key=key)
+        self.log_file = LOG_PATH.open("a", buffering=1)
         self.receiver = adsb_mon.ReceiverThread(self.decoder, self.update_q)
         self.receiver.start()
         self.set_interval(0.2, self.drain_queue)
@@ -160,6 +165,10 @@ class AdsbTop(App):
                     ac = self.decoder.aircraft.get(data)
                     if ac:
                         adsb_mon.start_enrichment(ac, self.update_q)
+                        self.log_file.write(json.dumps(
+                            {k: v for k, v in ac.items()
+                             if not k.startswith("_") and k != "photo_url"},
+                            default=str) + "\n")
                 elif kind == "enrich":
                     ac = self.decoder.aircraft.get(data, {})
                     self.log_line(f"Enriched {data}: {ac.get('type') or '?'} / "
@@ -222,6 +231,8 @@ class AdsbTop(App):
     def on_unmount(self):
         if self.receiver:
             self.receiver.stop()
+        if self.log_file:
+            self.log_file.close()
 
 
 if __name__ == "__main__":
