@@ -251,6 +251,8 @@ class ADSBDecoder:
             tc = (me[0] >> 3) & 0x1F
             if 1 <= tc <= 4:
                 info["callsign"] = self._decode_callsign(me)
+                if me[0] & 7:  # emitter category, e.g. A7 rotorcraft, B6 UAV
+                    info["category"] = f"{'DCBA'[tc - 1]}{me[0] & 7}"
             elif 9 <= tc <= 18 or 20 <= tc <= 22:
                 info["altitude"] = self._decode_altitude(me)
                 lat_c, lon_c, odd = self._decode_cpr(me)
@@ -350,7 +352,7 @@ class ADSBDecoder:
         ac = self.aircraft.setdefault(icao, {
             "icao": icao, "callsign": "", "altitude": None,
             "lat": None, "lon": None, "speed": None,
-            "heading": None, "vrate": None, "squawk": "",
+            "heading": None, "vrate": None, "squawk": "", "category": "",
             "msgs": 0, "last_seen": None,
             "reg": "", "type": "", "manufacturer": "", "operator": "",
             "photo_url": "", "route": "", "flight": "",
@@ -464,7 +466,7 @@ class DemoSource:
             ac = self.decoder.aircraft.setdefault(icao, {
                 "icao": icao, "callsign": cs, "altitude": alt,
                 "lat": lat, "lon": lon, "speed": spd, "heading": hdg,
-                "vrate": vr, "squawk": sq, "msgs": 0, "last_seen": None,
+                "vrate": vr, "squawk": sq, "category": "", "msgs": 0, "last_seen": None,
                 "reg": "", "type": "", "manufacturer": "", "operator": "",
                 "photo_url": "", "route": "", "flight": flight_number(cs),
                 "_enriched": False, "_enriching": False, "_flight_cs": "",

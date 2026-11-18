@@ -74,6 +74,7 @@ adsb = [
     "8D4840D6202CC371C32CE0576098",                       # KLM1023
     "8D40621D58C382D690C8AC2863A7", "8D40621D58C386435CC412692AD6",
     "8D485020994409940838175B284F",                       # 159 kt, 182.9°, −832 fpm
+    with_crc("8DABC123272CC371C32CE0"),                    # KLM1023's ident as category A7
 ]
 # Identity replies only count once their address is known, so a later batch.
 replies = [identity_reply(5, "4840D6", "7700"),
@@ -82,8 +83,10 @@ for batch in (adsb, replies):
     for msg in dec.demodulate(iq(batch)):
         dec.update(msg)
 ac = dec.aircraft
-check("aircraft heard", sorted(ac), ["40621D", "4840D6", "485020"])
+check("aircraft heard", sorted(ac), ["40621D", "4840D6", "485020", "ABC123"])
 check("KLM1023 callsign", ac["4840D6"]["callsign"], "KLM1023")
+check("no category when CA is 0", ac["4840D6"]["category"], "")
+check("category A7", ac["ABC123"]["category"], "A7")
 check("DF5 squawk", ac["4840D6"]["squawk"], "7700")
 check("DF21 squawk", ac["40621D"]["squawk"], "4521")
 check("altitude", ac["40621D"]["altitude"], 38000)
