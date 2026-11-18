@@ -572,6 +572,9 @@ python adsb-top.py
 - Emergency squawks (7500/7600/7700) stay red regardless of age.
 - A Class column as in the GUI (Military in orange); the ICAO is italic until a
   callsign and position have both been decoded.
+- Dist nm: great-circle distance from the receiver, whose location is read as
+  `lat,lon` from `~/.config/adsb-mon/home` (e.g. `echo 45.50,-73.57 >
+  ~/.config/adsb-mon/home`). Without that file the column shows —.
 - Keys: `q` quit, `c` clear. Click a column header to sort by it (again to reverse);
   default order is most recently heard first.
 - Every decoded message appends the aircraft's state as a JSON line to

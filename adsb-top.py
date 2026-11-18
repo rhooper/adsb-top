@@ -7,10 +7,14 @@ Rows are coloured while fresh, fade to dim grey between 10 s and 5 min since the
 aircraft was last heard, and are dropped after an hour.  Keys: q quit, c clear;
 click a column header to sort by it (again to reverse).  Every decoded message
 is appended as a JSON line to adsb-top.jsonl beside this script.
+
+Distance is from the receiver's location, read as "lat,lon" from
+~/.config/adsb-mon/home (kept out of the repo); without it the column shows —.
 """
 
 import importlib.util
 import json
+import math
 import queue
 import time
 from datetime import datetime
@@ -32,6 +36,7 @@ DROP_AFTER = 3600
 DIM        = (0x4A, 0x4A, 0x4A)
 EMERGENCY  = {"7500", "7600", "7700"}
 LOG_PATH   = Path(__file__).with_name("adsb-top.jsonl")
+HOME_PATH  = Path.home() / ".config" / "adsb-mon" / "home"
 
 CYAN, WHITE, GREEN, ORANGE, RED = "#00d4ff", "#e2e8f0", "#4ade80", "#ff9f43", "#ff4d4d"
 
@@ -39,10 +44,31 @@ COLUMNS = [  # (label, key)
     ("ICAO", "icao"), ("Callsign", "callsign"), ("Flight", "flight"), ("Class", "class"),
     ("Alt ft", "altitude"),
     ("V/R", "vrate"), ("Spd kt", "speed"), ("Hdg", "heading"),
-    ("Lat", "lat"), ("Lon", "lon"), ("Squawk", "squawk"), ("Msgs", "msgs"),
+    ("Lat", "lat"), ("Lon", "lon"), ("Dist nm", "dist"), ("Squawk", "squawk"), ("Msgs", "msgs"),
     ("Age", "age"), ("Type", "type"), ("Route", "route"),
 ]
-RIGHT = {"altitude", "vrate", "speed", "heading", "lat", "lon", "msgs", "age"}
+RIGHT = {"altitude", "vrate", "speed", "heading", "lat", "lon", "dist", "msgs", "age"}
+
+
+def load_home():
+    try:
+        lat, lon = (float(v) for v in HOME_PATH.read_text().split(","))
+        return lat, lon
+    except (OSError, ValueError):
+        return None
+
+
+HOME = load_home()
+
+
+def distance_nm(ac):
+    """Great-circle distance from HOME in nautical miles (haversine)."""
+    if HOME is None or ac["lat"] is None or ac["lon"] is None:
+        return None
+    p1, p2 = math.radians(HOME[0]), math.radians(ac["lat"])
+    dp, dl = p2 - p1, math.radians(ac["lon"] - HOME[1])
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * 3440.065 * math.asin(math.sqrt(a))
 
 
 def fade(color: str, age: float) -> str:
@@ -78,6 +104,7 @@ def row_cells(ac, age):
         cell("heading", ac["heading"], WHITE),
         cell("lat", f"{ac['lat']:.4f}" if ac["lat"] is not None else None, WHITE),
         cell("lon", f"{ac['lon']:.4f}" if ac["lon"] is not None else None, WHITE),
+        cell("dist", f"{d:.1f}" if (d := distance_nm(ac)) is not None else None, WHITE),
         # An emergency squawk must stay visible however stale the row is.
         Text(sq, style=f"bold {RED}") if sq in EMERGENCY else cell("squawk", sq, WHITE),
         cell("msgs", ac["msgs"], WHITE),
@@ -90,7 +117,7 @@ def row_cells(ac, age):
 def sort_value(ac, key):
     if key == "age":
         return age_of(ac)
-    v = ac.get(key)
+    v = distance_nm(ac) if key == "dist" else ac.get(key)
     return (v is None or v == "", v if v is not None else 0)
 
 
