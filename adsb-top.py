@@ -36,7 +36,7 @@ LOG_PATH   = Path(__file__).with_name("adsb-top.jsonl")
 CYAN, WHITE, GREEN, ORANGE, RED = "#00d4ff", "#e2e8f0", "#4ade80", "#ff9f43", "#ff4d4d"
 
 COLUMNS = [  # (label, key)
-    ("ICAO", "icao"), ("Callsign", "callsign"), ("Flight", "flight"),
+    ("ICAO", "icao"), ("Callsign", "callsign"), ("Flight", "flight"), ("Class", "class"),
     ("Alt ft", "altitude"),
     ("V/R", "vrate"), ("Spd kt", "speed"), ("Hdg", "heading"),
     ("Lat", "lat"), ("Lon", "lon"), ("Squawk", "squawk"), ("Msgs", "msgs"),
@@ -69,6 +69,7 @@ def row_cells(ac, age):
         cell("icao", ac["icao"], CYAN, bold=True),
         cell("callsign", ac["callsign"], CYAN),
         cell("flight", ac.get("flight"), CYAN),
+        cell("class", ac.get("class"), ORANGE if ac.get("class") == "Military" else WHITE),
         cell("altitude", f"{ac['altitude']:,}" if ac["altitude"] is not None else None, WHITE),
         cell("vrate", f"{vr:+,}" if vr is not None else None,
              GREEN if (vr or 0) > 0 else ORANGE if (vr or 0) < 0 else WHITE),
@@ -159,6 +160,8 @@ class AdsbTop(App):
                 kind, data = self.update_q.get_nowait()
                 if kind == "status":
                     self.status = data
+                    self.log_line(data)
+                elif kind == "log":
                     self.log_line(data)
                 elif kind == "update":
                     self._msgs += 1

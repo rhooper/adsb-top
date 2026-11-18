@@ -20,6 +20,8 @@ External APIs (all free, no key required):
   hexdb.io            → aircraft registration, type, manufacturer,
                         operator, and flight route by ICAO hex
   planespotters.net   → aircraft photos by ICAO hex or registration
+  tar1090-db (GitHub) → offline registration, type and military flag,
+                        downloaded to ~/.cache/adsb-mon (refreshed monthly)
   OpenStreetMap       → map tiles via tkintermapview
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -49,11 +51,14 @@ import time
 import math
 import queue
 import io
+import gzip
+import re
 import urllib.request
 import urllib.error
 import json
 from collections import deque
 from datetime import datetime
+from pathlib import Path
 
 # ── Optional heavy deps ──────────────────────────────────────────────────────
 # pyrtlsdr imports pkg_resources only to read its own version (inside a bare
@@ -145,6 +150,7 @@ COLS = [
     ("ICAO",     7,  "center"),
     ("Callsign", 10, "center"),
     ("Flight",    8, "center"),
+    ("Class",    10, "center"),
     ("Alt (ft)", 10, "e"),
     ("Lat",      11, "e"),
     ("Lon",      11, "e"),
@@ -186,6 +192,7 @@ class ADSBDecoder:
     def __init__(self):
         self.aircraft: dict = {}
         self._cpr_cache: dict = {}
+        self.db = AircraftDB()
 
     def demodulate(self, samples_iq) -> list:
         if not NUMPY_OK:
@@ -355,7 +362,7 @@ class ADSBDecoder:
             "heading": None, "vrate": None, "squawk": "", "category": "",
             "msgs": 0, "last_seen": None,
             "reg": "", "type": "", "manufacturer": "", "operator": "",
-            "photo_url": "", "route": "", "flight": "",
+            "photo_url": "", "route": "", "flight": "", "class": "",
             "_enriched": False, "_enriching": False, "_flight_cs": "",
         })
         cs = info.get("callsign")
@@ -366,6 +373,7 @@ class ADSBDecoder:
                 ac[k] = v
         ac["msgs"] += 1
         ac["last_seen"] = info["ts"]
+        self.db.classify(ac)
         return icao
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -452,6 +460,92 @@ def start_enrichment(ac: dict, update_q: queue.Queue):
         threading.Thread(target=enrich_flight, args=(ac, cs, update_q), daemon=True).start()
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  Offline aircraft database — tar1090-db (no key)
+# ═══════════════════════════════════════════════════════════════════════════
+
+DB_DIR     = Path.home() / ".cache" / "adsb-mon"
+DB_MAX_AGE = 30 * 86400
+DB_FILES   = {  # local name → URL
+    "aircraft.csv.gz": "https://raw.githubusercontent.com/wiedehopf/tar1090-db/csv/aircraft.csv.gz",
+    # Served gzipped despite the .js name: {type code: [name, "H1T"-style description, wake]}
+    "types.json.gz":   "https://raw.githubusercontent.com/wiedehopf/tar1090-db/master/db/icao_aircraft_types2.js",
+    "ranges.json":     "https://raw.githubusercontent.com/wiedehopf/tar1090-db/master/ranges.json",
+}
+
+AIRLINE_CALLSIGN = re.compile(r"[A-Z]{3}\d")
+CATEGORY_CLASS   = {"A7": "Heli", "B1": "Glider", "B2": "Balloon", "B4": "Ultralight", "B6": "UAV"}
+
+def aircraft_class(ac: dict) -> str:
+    """Military, Heli, Glider, Balloon, Ultralight, UAV, Commercial, Private, or ''."""
+    if ac.get("_mil"):
+        return "Military"
+    if ac.get("_desc", "")[:1] == "H":
+        return "Heli"
+    if ac["category"] in CATEGORY_CLASS:
+        return CATEGORY_CLASS[ac["category"]]
+    cs = ac["callsign"]
+    if not cs:
+        return ""
+    # Airline-style callsign (ACA871, RPA4567); GA flies under its registration.
+    if cs != ac["reg"].replace("-", "") and AIRLINE_CALLSIGN.match(cs):
+        return "Commercial"
+    return "Private"
+
+class AircraftDB:
+    def __init__(self):
+        self.records: dict = {}   # ICAO → "reg;type code;flags;name;year;owner;"
+        self.types: dict = {}
+        self.mil_ranges: list = []
+        self.ready = False
+        self._started = False
+
+    def start(self, update_q: queue.Queue):
+        if not self._started:
+            self._started = True
+            threading.Thread(target=self._load, args=(update_q,), daemon=True).start()
+
+    def _load(self, update_q):
+        try:
+            DB_DIR.mkdir(parents=True, exist_ok=True)
+            for name, url in DB_FILES.items():
+                path = DB_DIR / name
+                if path.exists() and time.time() - path.stat().st_mtime < DB_MAX_AGE:
+                    continue
+                update_q.put(("log", f"⬇  Downloading aircraft database ({name})…"))
+                data = _http_bytes(url, timeout=120)
+                if data:
+                    part = path.with_name(name + ".part")
+                    part.write_bytes(data)
+                    part.replace(path)
+            records = {}
+            with gzip.open(DB_DIR / "aircraft.csv.gz", "rt", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    icao, _, rest = line.partition(";")
+                    records[icao] = rest
+            self.types = json.loads(gzip.decompress((DB_DIR / "types.json.gz").read_bytes()))
+            self.mil_ranges = [(int(a, 16), int(b, 16)) for a, b in
+                               json.loads((DB_DIR / "ranges.json").read_text())["military"]]
+            self.records = records
+            self.ready = True
+            update_q.put(("log", f"📚  Aircraft database: {len(records):,} aircraft"))
+        except Exception as e:
+            update_q.put(("log", f"⚠  Aircraft database unavailable: {e}"))
+
+    def classify(self, ac: dict):
+        """Fill reg/type/operator gaps from the database and set ac["class"]."""
+        if self.ready and "_db" not in ac:
+            ac["_db"] = True
+            reg, code, flags, name, _year, owner = (self.records.get(ac["icao"], "").split(";") + [""] * 6)[:6]
+            n = int(ac["icao"], 16)
+            # Flags are a bit string: military, interesting, PIA, LADD.
+            ac["_mil"]  = flags[:1] == "1" or any(a <= n <= b for a, b in self.mil_ranges)
+            ac["_desc"] = self.types.get(code, ["", ""])[1]
+            ac["reg"]      = ac["reg"] or reg
+            ac["type"]     = ac["type"] or name or self.types.get(code, [""])[0]
+            ac["operator"] = ac["operator"] or owner
+        ac["class"] = aircraft_class(ac)
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  Demo source
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -477,7 +571,7 @@ class DemoSource:
                 "lat": lat, "lon": lon, "speed": spd, "heading": hdg,
                 "vrate": vr, "squawk": sq, "category": "", "msgs": 0, "last_seen": None,
                 "reg": "", "type": "", "manufacturer": "", "operator": "",
-                "photo_url": "", "route": "", "flight": flight_number(cs),
+                "photo_url": "", "route": "", "flight": flight_number(cs), "class": "",
                 "_enriched": False, "_enriching": False, "_flight_cs": "",
             })
             ac["lat"] = lat + math.cos(rad)*spd/3600/60*self._t*0.1
@@ -485,6 +579,7 @@ class DemoSource:
             ac["altitude"] = alt + (self._t % 5)*25*(1 if vr > 0 else -1)
             ac["msgs"] += 1
             ac["last_seen"] = datetime.now()
+            self.decoder.db.classify(ac)
             updates.append(icao)
         return updates
 
@@ -502,6 +597,7 @@ class ReceiverThread(threading.Thread):
 
     def run(self):
         self.running = True
+        self.decoder.db.start(self.q)
         if self.use_demo: self._run_demo()
         else:             self._run_hw()
 
@@ -698,6 +794,7 @@ class App(tk.Tk):
             ("Flight",       "flight"),
             ("Registration", "reg"),
             ("Type",         "type"),
+            ("Class",        "class"),
             ("Manufacturer", "manufacturer"),
             ("Operator",     "operator"),
             ("Route",        "route"),
@@ -780,6 +877,8 @@ class App(tk.Tk):
                         fg=ACCENT  if "Receiving" in data else
                            ACCENT2 if ("error" in data or "❌" in data) else MUTED)
                     self._log(data)
+                elif kind == "log":
+                    self._log(data)
                 elif kind == "update":
                     self._refresh_row(data)
                     self._msg_count += 1
@@ -827,6 +926,7 @@ class App(tk.Tk):
         ts = ac["last_seen"].strftime("%H:%M:%S") if ac["last_seen"] else "—"
         return (
             ac["icao"], ac["callsign"] or "—", ac.get("flight") or "—",
+            ac.get("class") or "—",
             f(ac["altitude"], ",d"),
             f"{ac['lat']:.4f}" if ac["lat"] is not None else "—",
             f"{ac['lon']:.4f}" if ac["lon"] is not None else "—",
@@ -867,6 +967,7 @@ class App(tk.Tk):
         v["flight"].set(ac.get("flight") or "—")
         v["reg"].set(ac.get("reg") or "—")
         v["type"].set(ac.get("type") or "—")
+        v["class"].set(ac.get("class") or "—")
         v["manufacturer"].set(ac.get("manufacturer") or "—")
         v["operator"].set(ac.get("operator") or "—")
         v["route"].set(ac.get("route") or "—")
