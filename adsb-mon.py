@@ -372,11 +372,15 @@ class ADSBDecoder:
 #  Online enrichment — hexdb.io (free, no key)
 # ═══════════════════════════════════════════════════════════════════════════
 
+ENRICH_RETRY = 60  # seconds before retrying a failed aircraft lookup
+
 def _http_json(url: str, timeout=5):
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "adsb-decoder/2.0"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        return {} if e.code == 404 else None  # {} = looked, not found
     except Exception:
         return None
 
@@ -392,6 +396,10 @@ def enrich_aircraft(ac: dict, update_q: queue.Queue):
     icao = ac["icao"]
     # 1. Aircraft info from hexdb.io
     data = _http_json(f"https://hexdb.io/api/v1/aircraft/{icao.lower()}")
+    if data is None:  # lookup failed rather than found nothing; retry later
+        ac["_enrich_after"] = time.time() + ENRICH_RETRY
+        ac["_enriching"] = False
+        return
     if data and "ICAOTypeCode" in data:
         ac["reg"]          = data.get("Registration", "")
         ac["type"]         = data.get("Type", "")
@@ -434,7 +442,8 @@ def enrich_flight(ac: dict, cs: str, update_q: queue.Queue):
 def start_enrichment(ac: dict, update_q: queue.Queue):
     """Call on every update. Aircraft lookups run once; flight lookups run once
     the callsign arrives, which is usually several messages after the first."""
-    if not ac["_enriched"] and not ac["_enriching"]:
+    if (not ac["_enriched"] and not ac["_enriching"]
+            and time.time() >= ac.get("_enrich_after", 0)):
         ac["_enriching"] = True
         threading.Thread(target=enrich_aircraft, args=(ac, update_q), daemon=True).start()
     cs = ac.get("callsign") or ""
