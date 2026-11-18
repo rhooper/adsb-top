@@ -125,6 +125,11 @@ ICAO_TO_IATA = {
 }
 
 
+def is_partial(ac: dict) -> bool:
+    """No callsign or position yet: only some of the aircraft's messages decoded so far."""
+    return not ac["callsign"] or ac["lat"] is None
+
+
 def flight_number(callsign: str) -> str:
     """ACA871 → AC871; '' for callsigns that aren't airline flights (C-GABC, N123AB)."""
     cs = (callsign or "").strip()
@@ -726,6 +731,7 @@ class App(tk.Tk):
         self.tree.tag_configure("even", background=ROW_A, foreground=FG)
         self.tree.tag_configure("odd",  background=ROW_B, foreground=FG)
         self.tree.tag_configure("new",  background="#0d2a1a", foreground=GREEN)
+        self.tree.tag_configure("partial", font=("Consolas", 10, "italic"))
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
         tk.Frame(left, bg=ACCENT, height=1).pack(fill="x", pady=(4,0))
@@ -910,14 +916,16 @@ class App(tk.Tk):
         self._ac_seen.add(icao)
         ri  = list(self.decoder.aircraft.keys()).index(icao)
         tag = "new" if is_new else ("even" if ri%2==0 else "odd")
+        tags = (tag, "partial") if is_partial(ac) else (tag,)
         if self.tree.exists(icao):
-            self.tree.item(icao, values=vals, tags=(tag,))
+            self.tree.item(icao, values=vals, tags=tags)
         else:
-            self.tree.insert("", "end", iid=icao, values=vals, tags=(tag,))
+            self.tree.insert("", "end", iid=icao, values=vals, tags=tags)
         if is_new:
             self.after(2000, lambda i=icao, r=ri:
-                self.tree.item(i, tags=(("even" if r%2==0 else "odd"),))
-                if self.tree.exists(i) else None)
+                self.tree.item(i, tags=(("even" if r%2==0 else "odd"),) +
+                               (("partial",) if is_partial(self.decoder.aircraft[i]) else ()))
+                if self.tree.exists(i) and i in self.decoder.aircraft else None)
 
     @staticmethod
     def _row(ac):

@@ -57,16 +57,17 @@ def age_of(ac) -> float:
 
 
 def row_cells(ac, age):
-    def cell(key, value, color, bold=False):
+    def cell(key, value, color, bold=False, italic=False):
         just = "right" if key in RIGHT else "left"
-        style = fade(color, age) + (" bold" if bold else "")
+        style = fade(color, age) + (" bold" if bold else "") + (" italic" if italic else "")
         return Text("—" if value is None or value == "" else str(value),
                     style=style, justify=just)
 
     vr = ac["vrate"]
     sq = ac["squawk"]
     return [
-        cell("icao", ac["icao"], CYAN, bold=True),
+        # Italic until a callsign and position have both been decoded.
+        cell("icao", ac["icao"], CYAN, bold=True, italic=adsb_mon.is_partial(ac)),
         cell("callsign", ac["callsign"], CYAN),
         cell("flight", ac.get("flight"), CYAN),
         cell("class", ac.get("class"), ORANGE if ac.get("class") == "Military" else WHITE),
