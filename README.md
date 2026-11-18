@@ -367,16 +367,21 @@ The application implements a complete ADS-B decoder pipeline:
 - Parses specific fields based on TC
 
 **Supported Message Types:**
-- **TC 1-4**: Callsign extraction (8-character alphanumeric)
+- **TC 1-4**: Callsign extraction (8-character alphanumeric) and emitter category
+  (A7 rotorcraft, B6 UAV, …)
 - **TC 9-18, 20-22**: Airborne position with CPR decoding
 - **TC 19**: Velocity (speed, heading, vertical rate)
-- **DF 5, 21**: Squawk code (4-digit octal)
+- **DF 5, 21**: Squawk code (4-digit octal). These replies carry CRC XOR address instead
+  of a CRC, so one is accepted only when the recovered address is an aircraft already
+  heard via ADS-B
 
 ### 2. Aircraft Table
 
 The table view updates in real-time and displays:
 - **ICAO**: 24-bit address in hexadecimal (unique identifier)
 - **Callsign**: Flight number or aircraft registration
+- **Class**: Military, Heli, Glider, Balloon, Ultralight, UAV, Commercial or Private
+  (see [Aircraft classification](#aircraft-classification))
 - **Altitude**: Barometric altitude in feet
 - **Position**: Decimal degrees latitude/longitude
 - **Speed**: Ground speed in knots
@@ -389,6 +394,8 @@ The table view updates in real-time and displays:
 **Table Features:**
 - Click any row to view detailed information
 - Alternating row colors for readability
+- Italic rows have no callsign or position yet — only some of that aircraft's
+  messages have decoded so far (distant or just appeared)
 - Automatic sorting by ICAO address
 - Selection synchronizes with map markers
 
@@ -448,7 +455,8 @@ When an aircraft is selected (via table or map), the detail panel shows:
 **Background Thread Architecture:**
 - Non-blocking API calls
 - Queue-based processing
-- One aircraft lookup per ICAO, one flight lookup per callsign
+- One aircraft lookup per ICAO, one flight lookup per callsign; an aircraft lookup
+  that fails (timeout, rate limit) is retried after 60 s
 
 **hexdb.io API:**
 - Free, no authentication required
@@ -461,6 +469,28 @@ When an aircraft is selected (via table or map), the detail panel shows:
 - Endpoint: `https://api.adsbdb.com/v0/callsign/<callsign>`
 - Until it answers, the flight number comes from a built-in ICAO→IATA
   airline prefix table (`ICAO_TO_IATA` in `adsb-mon.py`)
+
+**tar1090-db (offline):**
+- Downloaded from GitHub to `~/.cache/adsb-mon` on first run (~9 MB), refreshed monthly
+- Registration, ICAO type code, owner and military flag for ~650k aircraft, the
+  ICAO type descriptions (`H1T` = helicopter, 1 turbine) and military address ranges
+- Fills registration/type/owner when hexdb.io has no record, and drives the Class column
+
+#### Aircraft classification
+
+First match wins:
+
+| Class | Rule |
+|---|---|
+| Military | tar1090-db military flag, or a military ICAO address range |
+| Heli | type description starts with `H`, or emitter category A7 |
+| Glider / Balloon / Ultralight / UAV | emitter category B1 / B2 / B4 / B6 |
+| Commercial | airline-style callsign (3 letters + digit, e.g. `ACA871`) that isn't the registration |
+| Private | any other callsign (GA usually flies under its registration, e.g. `N123AB`) |
+
+Blank until there is enough to go on. Small drones (Amazon Prime Air, hobby, Part 107)
+don't transmit ADS-B at all — they broadcast Remote ID over Wi-Fi/Bluetooth, which a
+1090 MHz receiver can't hear; only large UAVs (MQ-9 etc.) appear here.
 
 **planespotters.net Photo API:**
 - Free, no authentication required
@@ -540,6 +570,8 @@ python adsb-top.py
 - Rows are coloured while fresh and fade to dim grey between 10 s and 5 minutes since the
   aircraft was last heard; they are dropped after an hour.
 - Emergency squawks (7500/7600/7700) stay red regardless of age.
+- A Class column as in the GUI (Military in orange); the ICAO is italic until a
+  callsign and position have both been decoded.
 - Keys: `q` quit, `c` clear. Click a column header to sort by it (again to reverse);
   default order is most recently heard first.
 - Every decoded message appends the aircraft's state as a JSON line to
