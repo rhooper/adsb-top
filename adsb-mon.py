@@ -174,6 +174,10 @@ def _crc24(data: bytes) -> int:
 def _check_crc(msg: bytes) -> bool:
     return _crc24(msg[:-3]) == (msg[-3] << 16 | msg[-2] << 8 | msg[-1])
 
+def _ap_address(msg: bytes) -> str:
+    """ICAO address of a reply whose parity field is CRC XOR address (DF4/5/20/21)."""
+    return f"{_crc24(msg[:-3]) ^ int.from_bytes(msg[-3:], 'big'):06X}"
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  ADS-B / Mode-S decoder
 # ═══════════════════════════════════════════════════════════════════════════
@@ -226,7 +230,13 @@ class ADSBDecoder:
             sum(bits[i+b] << (7-b) for b in range(8))
             for i in range(0, total_bits, 8)
         )
-        return raw if _check_crc(raw) else None
+        if _check_crc(raw):
+            return raw
+        # Identity replies carry CRC XOR address instead of a CRC, so any noise
+        # "decodes"; trust one only when it names an aircraft already heard.
+        if df in (5, 21) and _ap_address(raw) in self.aircraft:
+            return raw
+        return None
 
     def parse(self, raw: bytes):
         if len(raw) < 7: return None
@@ -253,8 +263,8 @@ class ADSBDecoder:
                 if hdg is not None: info["heading"] = hdg
                 if vr  is not None: info["vrate"]   = vr
         elif df in (5, 21):
-            sq = self._decode_squawk(raw)
-            if sq: info["squawk"] = sq
+            info["icao"] = _ap_address(raw)
+            info["squawk"] = self._decode_squawk(raw)
         return info if len(info) > 3 else None
 
     def _decode_callsign(self, me):
@@ -327,7 +337,11 @@ class ADSBDecoder:
         return spd, hdg, vr
 
     def _decode_squawk(self, raw):
-        return f"{(raw[2] & 0xFC) >> 2:04o}" if len(raw) >= 3 else None
+        # 13-bit identity, bits in order C1 A1 C2 A2 C4 A4 X B1 D1 B2 D2 B4 D4
+        idf = (raw[2] & 0x1F) << 8 | raw[3]
+        def digit(b4, b2, b1):
+            return sum(((idf >> (12 - b)) & 1) << s for b, s in ((b4, 2), (b2, 1), (b1, 0)))
+        return f"{digit(5, 3, 1)}{digit(11, 9, 7)}{digit(4, 2, 0)}{digit(12, 10, 8)}"
 
     def update(self, raw: bytes):
         info = self.parse(raw)
