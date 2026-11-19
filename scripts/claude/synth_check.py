@@ -52,6 +52,18 @@ def identity_reply(df, addr, squawk, extra=""):
     return (body + ap.to_bytes(3, "big")).hex().upper()
 
 
+def all_call(addr, iid=0):
+    """DF11 all-call reply: parity = CRC ^ interrogator ID."""
+    body = bytes([11 << 3 | 5]) + bytes.fromhex(addr)
+    return (body + (m._crc24(body) ^ iid).to_bytes(3, "big")).hex().upper()
+
+
+def altitude_reply(df, addr, ac13, extra=""):
+    """DF4 (56 bit) or DF20 (112 bit) with a raw 13-bit altitude code."""
+    body = bytes([df << 3, 0, ac13 >> 8, ac13 & 0xFF]) + bytes.fromhex(extra)
+    return (body + (m._crc24(body) ^ int(addr, 16)).to_bytes(3, "big")).hex().upper()
+
+
 failures = []
 
 
@@ -93,5 +105,25 @@ check("altitude", ac["40621D"]["altitude"], 38000)
 check("position", (round(ac["40621D"]["lat"], 4), round(ac["40621D"]["lon"], 4)), (52.2658, 3.9389))
 check("velocity", (ac["485020"]["speed"], ac["485020"]["heading"], ac["485020"]["vrate"]),
       (159, 182.9, -832))
+
+# Mode S only (no ADS-B): a clean DF11 introduces the address, then altitude
+# and identity replies fill it in.
+modes = m.ADSBDecoder()
+noise = [all_call("C0FFEE", iid=5), altitude_reply(4, "C0FFEE", 0x14B4), identity_reply(5, "C0FFEE", "1200")]
+check("unknown address: DF11 with IID, DF4, DF5 all dropped", modes.demodulate(iq(noise)), [])
+for batch in ([all_call("C0FFEE")],
+              [altitude_reply(4, "C0FFEE", 0x414), identity_reply(5, "C0FFEE", "1200"),
+               all_call("C0FFEE", iid=5)]):
+    for msg in modes.demodulate(iq(batch)):
+        modes.update(msg)
+check("Mode S-only aircraft heard", sorted(modes.aircraft), ["C0FFEE"])
+c0 = modes.aircraft["C0FFEE"]
+check("Mode S-only: altitude (Q bit, 25 ft)", c0["altitude"], 5500)
+check("Mode S-only: squawk", c0["squawk"], "1200")
+check("Mode S-only: messages incl. DF11 with IID", c0["msgs"], 4)
+check("Mode S-only shows as partial", m.is_partial(c0), True)
+modes.update(bytes.fromhex(altitude_reply(20, "C0FFEE", 0x14B4, "00000000000000")))
+check("DF20 altitude (pyModeS vector A02014B4…)", c0["altitude"], 32300)
+check("Gillham (100 ft) altitude, code from pyModeS", m.ADSBDecoder._decode_ac13(0x6A2), 10000)
 
 raise SystemExit(1 if failures else 0)

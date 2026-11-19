@@ -182,12 +182,13 @@ def _crc24(data: bytes) -> int:
                 crc ^= GENERATOR
     return crc & 0xFFFFFF
 
-def _check_crc(msg: bytes) -> bool:
-    return _crc24(msg[:-3]) == (msg[-3] << 16 | msg[-2] << 8 | msg[-1])
+def _parity_rem(msg: bytes) -> int:
+    """CRC XOR the parity field: 0 for a clean ADS-B frame, the address for DF0/4/5/16/20/21,
+    the interrogator ID for DF11."""
+    return _crc24(msg[:-3]) ^ int.from_bytes(msg[-3:], "big")
 
 def _ap_address(msg: bytes) -> str:
-    """ICAO address of a reply whose parity field is CRC XOR address (DF4/5/20/21)."""
-    return f"{_crc24(msg[:-3]) ^ int.from_bytes(msg[-3:], 'big'):06X}"
+    return f"{_parity_rem(msg):06X}"
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  ADS-B / Mode-S decoder
@@ -242,12 +243,18 @@ class ADSBDecoder:
             sum(bits[i+b] << (7-b) for b in range(8))
             for i in range(0, total_bits, 8)
         )
-        if _check_crc(raw):
-            return raw
-        # Identity replies carry CRC XOR address instead of a CRC, so any noise
-        # "decodes"; trust one only when it names an aircraft already heard.
-        if df in (5, 21) and _ap_address(raw) in self.aircraft:
-            return raw
+        rem = _parity_rem(raw)
+        if df in (17, 18):
+            return raw if rem == 0 else None
+        if df == 11:
+            # All-call reply: parity is CRC XOR interrogator ID (< 80). Only a clean
+            # one may introduce a new address; others must name a known aircraft.
+            known = raw[1:4].hex().upper() in self.aircraft
+            return raw if rem == 0 or (rem < 80 and known) else None
+        if df in (0, 4, 5, 16, 20, 21):
+            # Parity is CRC XOR address, so any noise "decodes"; trust one only
+            # when it names an aircraft already heard.
+            return raw if f"{rem:06X}" in self.aircraft else None
         return None
 
     def parse(self, raw: bytes):
@@ -276,6 +283,12 @@ class ADSBDecoder:
                 if spd is not None: info["speed"]   = spd
                 if hdg is not None: info["heading"] = hdg
                 if vr  is not None: info["vrate"]   = vr
+        elif df == 11:
+            info["icao"] = raw[1:4].hex().upper()
+            return info  # only says the aircraft is there
+        elif df in (0, 4, 16, 20):
+            info["icao"] = _ap_address(raw)
+            info["altitude"] = self._decode_ac13((raw[2] & 0x1F) << 8 | raw[3])
         elif df in (5, 21):
             info["icao"] = _ap_address(raw)
             info["squawk"] = self._decode_squawk(raw)
@@ -349,6 +362,31 @@ class ADSBDecoder:
             rs = (me[4] >> 3) & 1; rv = ((me[4] & 7) << 6) | (me[5] >> 2)
             if rv: vr = (rv-1)*64; vr = -vr if rs else vr
         return spd, hdg, vr
+
+    @staticmethod
+    def _decode_ac13(ac13):
+        """13-bit altitude code, bits C1 A1 C2 A2 C4 A4 M B1 Q B2 D2 B4 D4 → feet, or None."""
+        if not ac13 or ac13 & 0x40:  # 0 = no altitude; M bit = metres, unused in practice
+            return None
+        if ac13 & 0x10:  # Q bit: 25 ft steps
+            n = ((ac13 & 0x1F80) >> 2) | ((ac13 & 0x20) >> 1) | (ac13 & 0xF)
+            return n * 25 - 1000
+        # Gillham code from older transponders: Gray-coded 500 ft and 100 ft steps.
+        gray = 0
+        for b in (10, 12, 1, 3, 5, 7, 9, 11, 0, 2, 4):  # D2 D4 A1 A2 A4 B1 B2 B4 C1 C2 C4
+            gray = gray << 1 | (ac13 >> (12 - b)) & 1
+        def gray_to_int(g):
+            for shift in (8, 4, 2, 1):
+                g ^= g >> shift
+            return g
+        n500, n100 = gray_to_int(gray >> 3), gray_to_int(gray & 7)
+        if n100 in (0, 5, 6):
+            return None
+        if n100 == 7:
+            n100 = 5
+        if n500 % 2:
+            n100 = 6 - n100
+        return n500 * 500 + n100 * 100 - 1300
 
     def _decode_squawk(self, raw):
         # 13-bit identity, bits in order C1 A1 C2 A2 C4 A4 X B1 D1 B2 D2 B4 D4
