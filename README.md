@@ -361,7 +361,7 @@ The application implements a complete ADS-B decoder pipeline:
 - Validates CRC-24 checksum
 
 **Message Parsing:**
-- Identifies Downlink Format (DF 17/18 for ADS-B, DF 5/21 for squawk)
+- Identifies Downlink Format (DF 17/18 for ADS-B, DF 0/4/5/11/16/20/21 for Mode S replies)
 - Extracts ICAO 24-bit address (unique aircraft ID)
 - Decodes Type Code to determine message category
 - Parses specific fields based on TC
@@ -371,9 +371,14 @@ The application implements a complete ADS-B decoder pipeline:
   (A7 rotorcraft, B6 UAV, …)
 - **TC 9-18, 20-22**: Airborne position with CPR decoding
 - **TC 19**: Velocity (speed, heading, vertical rate)
-- **DF 5, 21**: Squawk code (4-digit octal). These replies carry CRC XOR address instead
-  of a CRC, so one is accepted only when the recovered address is an aircraft already
-  heard via ADS-B
+- **DF 11**: All-call reply — introduces an aircraft that has Mode S but no ADS-B
+  (only with interrogator ID 0; otherwise the address must already be known)
+- **DF 0, 4, 16, 20**: Altitude (25 ft steps, or Gray-coded 100 ft steps from older transponders)
+- **DF 5, 21**: Squawk code (4-digit octal)
+- DF 0/4/5/16/20/21 carry CRC XOR address instead of a CRC, so one is accepted only when
+  the recovered address is an aircraft already heard (via ADS-B or DF 11)
+- Mode S replies have no position, and are only sent when a radar or another aircraft's
+  TCAS interrogates; Mode S-only aircraft appear with altitude and squawk, in italics
 
 ### 2. Aircraft Table
 
