@@ -156,4 +156,39 @@ anon = tisb.aircraft["~0E0002"]
 db.classify(anon)
 check("track number not looked up or called military", (anon["reg"], anon["class"]), ("", ""))
 
+# tar1090-db beats hexdb.io, whichever answers first. Lookups are stubbed offline.
+import queue
+STEARMAN = {"ICAOTypeCode": "ST75", "Registration": "N54561", "Type": "Stearman A75N1",
+            "Manufacturer": "Boeing", "RegisteredOwners": "Private"}
+m._http_json = lambda url, timeout=5: STEARMAN if "hexdb" in url else {}
+q = queue.Queue()
+
+
+def fresh_db():
+    d = m.AircraftDB()
+    d.records = {"A6EDC3": "N54561;A21N;00;AIRBUS A-321neo;2026;WILMINGTON TRUST CO TRUSTEE;",
+                 "AE1253": "62-4126;R135;10;Boeing RC-135W Rivet Joint;;;"}
+    d.types, d.ready = {}, True
+    return d
+
+
+for order in ("db first", "hexdb first"):
+    d = fresh_db()
+    plane = {"icao": "A6EDC3", "callsign": "UAL745", "category": "", "reg": "", "type": "",
+             "manufacturer": "", "operator": "", "_enriched": False, "_enriching": False}
+    steps = [lambda: d.classify(plane), lambda: m.enrich_aircraft(plane, q)]
+    for step in (steps if order == "db first" else steps[::-1]):
+        step()
+    check(f"reused registration, {order}",
+          (plane["type"], plane["manufacturer"], plane["operator"]),
+          ("AIRBUS A-321neo", "", "WILMINGTON TRUST CO TRUSTEE"))
+d = fresh_db()
+rj = {"icao": "AE1253", "callsign": "", "category": "", "reg": "", "type": "",
+      "manufacturer": "", "operator": "", "_enriched": False, "_enriching": False}
+d.classify(rj)
+STEARMAN["RegisteredOwners"] = "United States Air Force"
+m.enrich_aircraft(rj, q)
+check("hexdb.io fills an operator tar1090-db lacks", (rj["type"], rj["operator"]),
+      ("Boeing RC-135W Rivet Joint", "United States Air Force"))
+
 raise SystemExit(1 if failures else 0)

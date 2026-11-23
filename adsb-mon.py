@@ -460,10 +460,15 @@ def enrich_aircraft(ac: dict, update_q: queue.Queue):
         ac["_enriching"] = False
         return
     if data and "ICAOTypeCode" in data:
-        ac["reg"]          = data.get("Registration", "")
-        ac["type"]         = data.get("Type", "")
-        ac["manufacturer"] = data.get("Manufacturer", "")
-        ac["operator"]     = data.get("RegisteredOwners", "")
+        # tar1090-db is fresher: hexdb.io still has earlier owners of reused
+        # registrations. With a tar1090-db record, only fill a missing operator.
+        if not ac.get("_db"):
+            ac["reg"]          = data.get("Registration", "")
+            ac["type"]         = data.get("Type", "")
+            ac["manufacturer"] = data.get("Manufacturer", "")
+            ac["operator"]     = data.get("RegisteredOwners", "")
+        elif not ac["operator"]:
+            ac["operator"]     = data.get("RegisteredOwners", "")
     # 2. Photo from Planespotters.net (free, no key, returns real photos)
     #    Try by hex first, fall back to registration
     photo_url = None
@@ -583,19 +588,22 @@ class AircraftDB:
             update_q.put(("log", f"⚠  Aircraft database unavailable: {e}"))
 
     def classify(self, ac: dict):
-        """Fill reg/type/operator gaps from the database and set ac["class"]."""
+        """Set reg/type/operator from the database (it beats hexdb.io) and ac["class"]."""
         if self.ready and "_db" not in ac:
-            ac["_db"] = True
             anon = ac["icao"].startswith("~")  # not an ICAO address: nothing to look up
             rec = "" if anon else self.records.get(ac["icao"], "")
+            ac["_db"] = bool(rec)
             reg, code, flags, name, _year, owner = (rec.split(";") + [""] * 6)[:6]
             # Flags are a bit string: military, interesting, PIA, LADD.
             ac["_mil"]  = flags[:1] == "1" or not anon and any(
                 a <= int(ac["icao"], 16) <= b for a, b in self.mil_ranges)
             ac["_desc"] = self.types.get(code, ["", ""])[1]
-            ac["reg"]      = ac["reg"] or reg
-            ac["type"]     = ac["type"] or name or self.types.get(code, [""])[0]
-            ac["operator"] = ac["operator"] or owner
+            db_type = name or self.types.get(code, [""])[0]
+            if db_type and ac["type"] and db_type != ac["type"]:
+                ac["manufacturer"] = ""  # hexdb.io's, for the type being replaced
+            ac["reg"]      = reg or ac["reg"]
+            ac["type"]     = db_type or ac["type"]
+            ac["operator"] = owner or ac["operator"]
         ac["class"] = aircraft_class(ac)
 
 # ═══════════════════════════════════════════════════════════════════════════
