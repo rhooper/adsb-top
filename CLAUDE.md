@@ -10,9 +10,13 @@ Tk app `adsb-mon.py`, plus Textual terminal view `adsb-top.py`. See README.md fo
 - `adsb-mon.py` has CRLF line endings; scripted edits must keep them (`newline=""`
   in Python) or the diff rewrites every line.
 
-- The dongle on the dev Mac (RTL2838/R820T) currently hears no aircraft (`rtl_adsb`
-  shows only noise), so a live run proves the SDR pipeline, not the decoder. Check
-  decoder changes against synthetic IQ built from known DF17 frames, e.g.
+- Aircraft dict keys starting `~` are DF18 track numbers, not ICAO addresses: never
+  `int(icao, 16)` them or look them up.
+
+- `adsb-top.py` usually runs for days on the dev Mac, holding the dongle; don't stop it.
+  Its `adsb-top.jsonl` (gitignored) is a log of real traffic, good for spotting
+  decoder/classification bugs, but it has no raw frames. Check decoder changes
+  against synthetic IQ built from known DF17 frames, e.g.
   `8D4840D6202CC371C32CE0576098` (KLM1023), `8D40621D58C382D690C8AC2863A7` +
   `8D40621D58C386435CC412692AD6` (38000 ft, 52.2658/3.9389),
   `8D485020994409940838175B284F` (159 kt, 182.9°, −832 fpm). At 2 MS/s: preamble
