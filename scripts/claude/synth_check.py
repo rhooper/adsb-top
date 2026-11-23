@@ -191,4 +191,9 @@ m.enrich_aircraft(rj, q)
 check("hexdb.io fills an operator tar1090-db lacks", (rj["type"], rj["operator"]),
       ("Boeing RC-135W Rivet Joint", "United States Air Force"))
 
+# Airport ground vehicles (DTW's N8xxQX send C1/C2) are not aircraft.
+for msg in calls.demodulate(iq([ident("AB4899", "O376", tc=2, cat=2)])):
+    calls.update(msg)
+check("C2 surface vehicle class", calls.aircraft["AB4899"]["class"], "Vehicle")
+
 raise SystemExit(1 if failures else 0)

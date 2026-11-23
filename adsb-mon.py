@@ -529,10 +529,12 @@ DB_FILES   = {  # local name → URL
 }
 
 AIRLINE_CALLSIGN = re.compile(r"[A-Z]{3}\d")
-CATEGORY_CLASS   = {"A7": "Heli", "B1": "Glider", "B2": "Balloon", "B4": "Ultralight", "B6": "UAV"}
+CATEGORY_CLASS   = {"A7": "Heli", "B1": "Glider", "B2": "Balloon", "B4": "Ultralight", "B6": "UAV",
+                    "C1": "Vehicle", "C2": "Vehicle", "C3": "Obstacle", "C4": "Obstacle", "C5": "Obstacle"}
 
 def aircraft_class(ac: dict) -> str:
-    """Military, Heli, Glider, Balloon, Ultralight, UAV, Commercial, Private, or ''."""
+    """Military, Heli, Glider, Balloon, Ultralight, UAV, Vehicle, Obstacle, Commercial,
+    Private, or ''."""
     if ac.get("_mil"):
         return "Military"
     if ac.get("_desc", "")[:1] == "H":
