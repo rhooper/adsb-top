@@ -265,9 +265,19 @@ class ADSBDecoder:
         if df in (17, 18):
             if len(raw) < 14: return None
             icao = raw[1:4].hex().upper()
-            info["icao"] = icao
             me = raw[4:11]
             tc = (me[0] >> 3) & 0x1F
+            if df == 18:
+                cf = raw[0] & 7
+                if cf in (3, 4, 7):  # coarse TIS-B, management, reserved: other layouts
+                    return None
+                # CF 1 and 5 never carry an ICAO address; TIS-B (2) and ADS-R (6)
+                # set the IMF bit when theirs is a track number instead (readsb's rule).
+                imf = (me[0] & 1 if 9 <= tc <= 18 or 20 <= tc <= 22 else
+                       me[1] >> 7 if tc == 19 else 0)
+                if cf in (1, 5) or (cf in (2, 6) and imf):
+                    icao = "~" + icao
+            info["icao"] = icao
             if 1 <= tc <= 4:
                 cs = self._decode_callsign(me)
                 if cs: info["callsign"] = cs
@@ -491,7 +501,7 @@ def enrich_flight(ac: dict, cs: str, update_q: queue.Queue):
 def start_enrichment(ac: dict, update_q: queue.Queue):
     """Call on every update. Aircraft lookups run once; flight lookups run once
     the callsign arrives, which is usually several messages after the first."""
-    if (not ac["_enriched"] and not ac["_enriching"]
+    if (not ac["_enriched"] and not ac["_enriching"] and not ac["icao"].startswith("~")
             and time.time() >= ac.get("_enrich_after", 0)):
         ac["_enriching"] = True
         threading.Thread(target=enrich_aircraft, args=(ac, update_q), daemon=True).start()
@@ -576,10 +586,12 @@ class AircraftDB:
         """Fill reg/type/operator gaps from the database and set ac["class"]."""
         if self.ready and "_db" not in ac:
             ac["_db"] = True
-            reg, code, flags, name, _year, owner = (self.records.get(ac["icao"], "").split(";") + [""] * 6)[:6]
-            n = int(ac["icao"], 16)
+            anon = ac["icao"].startswith("~")  # not an ICAO address: nothing to look up
+            rec = "" if anon else self.records.get(ac["icao"], "")
+            reg, code, flags, name, _year, owner = (rec.split(";") + [""] * 6)[:6]
             # Flags are a bit string: military, interesting, PIA, LADD.
-            ac["_mil"]  = flags[:1] == "1" or any(a <= n <= b for a, b in self.mil_ranges)
+            ac["_mil"]  = flags[:1] == "1" or not anon and any(
+                a <= int(ac["icao"], 16) <= b for a, b in self.mil_ranges)
             ac["_desc"] = self.types.get(code, ["", ""])[1]
             ac["reg"]      = ac["reg"] or reg
             ac["type"]     = ac["type"] or name or self.types.get(code, [""])[0]

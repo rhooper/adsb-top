@@ -139,4 +139,21 @@ for msg in calls.demodulate(iq([ident("A1B2C3", "AAL1234X"), ident("A1B2C4", "##
 check("8-character callsign keeps its last character", calls.aircraft["A1B2C3"]["callsign"], "AAL1234X")
 check("all-zero callsign (no identity) is dropped", "A1B2C4" in calls.aircraft, False)
 
+# DF18: the CF field says whether the address is an ICAO one. Position ME from
+# 8D40621D58C382D690C8AC; its low bit of byte 0 is the TIS-B/ADS-R IMF flag.
+tisb = m.ADSBDecoder()
+pos_me = "C382D690C8AC"
+for cf, addr, me0 in ((2, "A00001", "58"), (2, "0E0002", "59"), (6, "0E0003", "59"),
+                      (1, "0E0004", "58"), (5, "0E0005", "58"), (3, "A00006", "58")):
+    for msg in tisb.demodulate(iq([with_crc(f"{18 << 3 | cf:02X}{addr}{me0}{pos_me}")])):
+        tisb.update(msg)
+check("DF18 addresses by CF/IMF", sorted(tisb.aircraft),
+      ["A00001", "~0E0002", "~0E0003", "~0E0004", "~0E0005"])
+check("TIS-B altitude still decoded", tisb.aircraft["~0E0002"]["altitude"], 38000)
+db = tisb.db
+db.records, db.mil_ranges, db.ready = {"0E0002": "N1;B738;10;BOEING;;NAVY;"}, [(0x0E0000, 0x0EFFFF)], True
+anon = tisb.aircraft["~0E0002"]
+db.classify(anon)
+check("track number not looked up or called military", (anon["reg"], anon["class"]), ("", ""))
+
 raise SystemExit(1 if failures else 0)
