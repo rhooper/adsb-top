@@ -64,6 +64,13 @@ def altitude_reply(df, addr, ac13, extra=""):
     return (body + (m._crc24(body) ^ int(addr, 16)).to_bytes(3, "big")).hex().upper()
 
 
+def ident(addr, cs, df=17, cf=5, tc=4, cat=0):
+    """Identification squitter; `cf` is CA for DF17, CF for DF18. '#' in `cs` = code 0."""
+    codes = [0 if ch == "#" else 32 if ch == " " else m.CS_CHARSET.index(ch) for ch in cs.ljust(8)]
+    chars = sum(c << (42 - 6 * i) for i, c in enumerate(codes))
+    return with_crc(f"{df << 3 | cf:02X}{addr}{tc << 3 | cat:02X}{chars:012X}")
+
+
 failures = []
 
 
@@ -125,5 +132,11 @@ check("Mode S-only shows as partial", m.is_partial(c0), True)
 modes.update(bytes.fromhex(altitude_reply(20, "C0FFEE", 0x14B4, "00000000000000")))
 check("DF20 altitude (pyModeS vector A02014B4…)", c0["altitude"], 32300)
 check("Gillham (100 ft) altitude, code from pyModeS", m.ADSBDecoder._decode_ac13(0x6A2), 10000)
+
+calls = m.ADSBDecoder()
+for msg in calls.demodulate(iq([ident("A1B2C3", "AAL1234X"), ident("A1B2C4", "########")])):
+    calls.update(msg)
+check("8-character callsign keeps its last character", calls.aircraft["A1B2C3"]["callsign"], "AAL1234X")
+check("all-zero callsign (no identity) is dropped", "A1B2C4" in calls.aircraft, False)
 
 raise SystemExit(1 if failures else 0)

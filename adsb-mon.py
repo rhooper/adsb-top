@@ -269,7 +269,8 @@ class ADSBDecoder:
             me = raw[4:11]
             tc = (me[0] >> 3) & 0x1F
             if 1 <= tc <= 4:
-                info["callsign"] = self._decode_callsign(me)
+                cs = self._decode_callsign(me)
+                if cs: info["callsign"] = cs
                 if me[0] & 7:  # emitter category, e.g. A7 rotorcraft, B6 UAV
                     info["category"] = f"{'DCBA'[tc - 1]}{me[0] & 7}"
             elif 9 <= tc <= 18 or 20 <= tc <= 22:
@@ -295,14 +296,11 @@ class ADSBDecoder:
         return info if len(info) > 3 else None
 
     def _decode_callsign(self, me):
-        cs = ""
-        for i in range(8):
-            bi = 1 + i*6//8
-            bo = (8 + i*6) % 8
-            if bi+1 >= len(me): break
-            val = ((me[bi] << 8 | me[bi+1]) >> (10-bo)) & 0x3F
-            cs += CS_CHARSET[val] if val < len(CS_CHARSET) else "?"
-        return cs.strip()
+        bits = int.from_bytes(me[1:7], "big")  # 8 six-bit characters
+        cs = "".join(CS_CHARSET[(bits >> (42 - 6*i)) & 0x3F] for i in range(8)).rstrip("_")
+        # '#' marks a code with no character; a callsign holding one is corrupt
+        # (TIS-B targets with no identity send all zeros).
+        return "" if "#" in cs else cs
 
     def _decode_altitude(self, me):
         ac = (me[1] & 0xFF) << 4 | (me[2] & 0xF0) >> 4
