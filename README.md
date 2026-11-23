@@ -383,9 +383,11 @@ The application implements a complete ADS-B decoder pipeline:
 ### 2. Aircraft Table
 
 The table view updates in real-time and displays:
-- **ICAO**: 24-bit address in hexadecimal (unique identifier)
+- **ICAO**: 24-bit address in hexadecimal (unique identifier). A `~` prefix marks a
+  TIS-B/ADS-R track number rather than an ICAO address; those are never looked up
 - **Callsign**: Flight number or aircraft registration
-- **Class**: Military, Heli, Glider, Balloon, Ultralight, UAV, Commercial or Private
+- **Class**: Military, Heli, Glider, Balloon, Ultralight, UAV, Vehicle, Obstacle,
+  Commercial or Private
   (see [Aircraft classification](#aircraft-classification))
 - **Altitude**: Barometric altitude in feet
 - **Position**: Decimal degrees latitude/longitude
@@ -479,7 +481,8 @@ When an aircraft is selected (via table or map), the detail panel shows:
 - Downloaded from GitHub to `~/.cache/adsb-mon` on first run (~9 MB), refreshed monthly
 - Registration, ICAO type code, owner and military flag for ~650k aircraft, the
   ICAO type descriptions (`H1T` = helicopter, 1 turbine) and military address ranges
-- Fills registration/type/owner when hexdb.io has no record, and drives the Class column
+- Its registration/type/owner win over hexdb.io's, which still lists earlier holders of
+  reused registrations; hexdb.io only fills an owner it lacks. Drives the Class column
 
 #### Aircraft classification
 
@@ -490,6 +493,7 @@ First match wins:
 | Military | tar1090-db military flag, or a military ICAO address range |
 | Heli | type description starts with `H`, or emitter category A7 |
 | Glider / Balloon / Ultralight / UAV | emitter category B1 / B2 / B4 / B6 |
+| Vehicle / Obstacle | emitter category C1–C2 (airport ground vehicles) / C3–C5 |
 | Commercial | airline-style callsign (3 letters + digit, e.g. `ACA871`) that isn't the registration |
 | Private | any other callsign (GA usually flies under its registration, e.g. `N123AB`) |
 
